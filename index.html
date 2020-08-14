@@ -46,6 +46,9 @@
                   <v-list-item-title class="title">
                     Controls
                   </v-list-item-title>
+                  <v-list-item-subtitle>
+                    <v-btn text @click="setChosenFile">Load a demo log file.</v-btn>
+                  </v-list-item-subtitle>
                 </v-list-item-content>
             </v-list-item>
             <v-divider></v-divider>
@@ -464,6 +467,9 @@
         },
       },
       methods: {
+          setChosenFile() {
+            this.chosenFile = new File([""],"demo_logs/M222222_2 PicketFence_Field 1_20200813121716.bin");
+          },
           parseFilename() {
             if (!this.chosenFile) {
                 this.contents = 'Please select a file first!';
