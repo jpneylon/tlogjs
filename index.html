@@ -19,18 +19,149 @@
   <link href="https://cdn.jsdelivr.net/npm/@mdi/font@5.x/css/materialdesignicons.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css" rel="stylesheet">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
-  <style type="text/css" media="print">
-    .noPrint
-    { display: none; }
+  <style>
+    @media print{
+        .v-content {
+            padding: 0 !important;
+        }
+        .no-print {
+            display: none;
+            padding: 0 !important;
+        }
+    }   
   </style>
 </head>
 <body>
   <div id="app">
     <v-app>
-        <v-main>
-            <div class="noPrint">
+        <v-navigation-drawer 
+            app 
+            floating 
+            permanent 
+            dark 
+            width="320" 
+            class="no-print">
+            <v-list-item>
+                <v-list-item-content>
+                  <v-list-item-title class="title">
+                    Controls
+                  </v-list-item-title>
+                </v-list-item-content>
+            </v-list-item>
+            <v-divider></v-divider>
+            <v-list>
+                <v-list-item>
+                    <v-btn 
+                        rounded 
+                        color="deep-purple accent-4" 
+                        dark 
+                        @click="loading=true,parseFilename(),importBinary()">Import File</v-btn>
+                </v-list-item>
+                <br>
+                <v-list-item>
+                    <v-btn 
+                        rounded 
+                        color="deep-purple accent-4" 
+                        dark 
+                        :disabled="!imported"
+                        @click="analyzing=true,analyzeLogs(),generateCharts()">Analyze Log</v-btn>
+                </v-list-item>
+                <br>
+                <v-list-item>
+                    <v-btn 
+                        rounded 
+                        color="deep-purple accent-4"  
+                        dark 
+                        :disabled="!analyzed"
+                        @click="minimize=true"
+                        onclick="window.print()">Print to PDF</v-btn>
+                </v-list-item>
+                <br>
+            </v-list>
+            <v-divider></v-divider>
+            <v-card justify="center" outlined v-show="imported">
+                <v-card-title>Target Deviations:</v-card-title>
+                <v-card-text>
+                    <br>
+                    <v-slider
+                        v-model="toler.pos"
+                        min="0.01"
+                        max="0.50"
+                        step="0.01"
+                        label="Leaf Position (cm)"
+                        color="red lighten-1"
+                        :thumb-size="30"
+                        track-color="light-green"
+                        thumb-color="light-green"
+                        thumb-label="always"
+                    ></v-slider>
+                    <br>
+                    <v-slider
+                        v-model="toler.vel"
+                        min="0.10"
+                        max="1.00"
+                        step="0.05"
+                        label="Leaf Speed (cm/s)"
+                        color="red lighten-1"
+                        thumb-size="30"
+                        track-color="light-green"
+                        thumb-color="light-green"
+                        thumb-label="always"
+                    ></v-slider>
+                </v-card-text>
+            </v-card>
+            <v-divider></v-divider>
+            <v-list v-show="analyzed">
+                <v-list-item>
+                    <v-switch 
+                        v-model="p_switch1" 
+                        color="indigo"
+                        label="Leaf Pos. Error Histogram &emsp;">
+                    </v-switch>
+                </v-list-item>
+                <v-list-item>
+                    <v-switch 
+                        v-model="p_switch2" 
+                        color="indigo"
+                        label="Leaf Speed Error Histogram &emsp;">
+                    </v-switch>
+                </v-list-item>
+                <v-list-item>
+                    <v-switch 
+                        v-model="p_switch4" 
+                        color="indigo"
+                        label="MU Comparison Plot &emsp;">
+                    </v-switch>
+                </v-list-item>
+                <v-list-item>
+                    <v-switch 
+                        v-model="p_switch3" 
+                        color="indigo"
+                        label="RMS Position Error per Leaf &emsp;">
+                    </v-switch>
+                </v-list-item>
+                <v-list-item>
+                    <v-switch 
+                        v-model="p_switch5" 
+                        color="indigo"
+                        label="RMS Speed Error per Leaf &emsp;">
+                    </v-switch>
+                </v-list-item>
+                <v-list-item>
+                    <v-switch 
+                        v-model="t_switch1" 
+                        color="indigo"
+                        label="Print Trajectory Log Statistics">
+                    </v-switch>
+                </v-list-item>
+            </v-list>
+        </v-navigation-drawer>
+        <v-main app class="v-content">
+            <div class="hidden-print-only">
+                <br>
                 <v-row align="center" justify="center">
-                    <v-card width="900" height="220" raised>
+                    <v-card width="95%" height="150" outlined>
+                        <v-card-title>Trajectory Log File Analysis:</v-card-title>
                         <v-card-text>
                             <v-file-input 
                                 accept=".bin"
@@ -38,16 +169,11 @@
                                 outlined
                                 v-model="chosenFile">
                             </v-file-input>
-                            <p>{{ contents }}</p>
                         </v-card-text>
-                        <v-card-actions>
-                            <v-spacer></v-spacer>
-                            <v-btn rounded color="deep-purple accent-4" dark @click="loading=true,parseFilename(),importBinary()">Import File</v-btn>
-                        </v-card-actions>
                     </v-card>
                 </v-row>
                 <v-row align="center" justify="center">
-                    <v-card width="900" height="6" justify="center" raised>
+                    <v-card width="95%" height="6" justify="center" raised>
                         <v-progress-linear
                             color="deep-purple accent-4"
                             :indeterminate="loading"
@@ -56,17 +182,11 @@
                         ></v-progress-linear>
                     </v-card>
                 </v-row>
+                <br>
             </div>
-            <br>
-            <div class="noPrint" v-show="analyzed">
+            <div style="page-break-after: always;" v-show="imported" class="d-print-block">
                 <v-row align="center" justify="center">
-                    <v-btn rounded color="deep-purple accent-4" x-large dark onclick="window.print()">Print to PDF</v-btn>
-                </v-row>
-            </div>
-            <br>
-            <div style="page-break-after: always;" v-show="imported">
-                <v-row align="center" justify="center">
-                    <v-card width="900" height="680" raised>
+                    <v-card width="95%" height="600" outlined>
                         <v-card-title>Plan Information:</v-card-title>
                         <v-card-text>
                             <v-simple-table dense>
@@ -125,51 +245,28 @@
                                         </tr>
                                         <tr>
                                             <td>Results:</td>
-                                            <td><b v-show="!status">{{ error.max_pos | checkTolerance(0.1) }}</b>
-                                            <br><b v-show="status">{{ message }}</b></td>
+                                            <td><b v-show="analyzed">{{ error.max_pos | checkTolerance(toler.pos) }}</b>
+                                            <br><b v-show="!analyzed">{{ message }}</b></td>
                                         </tr>
                                     </tbody>
                                 </template>
                             </v-simple-table>
                         </v-card-text>
-                        <v-card-actions class="d-print-none">
-                            <v-spacer></v-spacer>
-                            <v-btn rounded color="deep-purple accent-4" dark @click="analyzing=true,analyzeLogs(),generateCharts()">Analyze Log</v-btn>
-                        </v-card-actions>
                     </v-card>
                 </v-row>
-                <v-row align="center" justify="center">
-                    <div class="noPrint">
-                        <v-card width="900" height="6" justify="center" raised>
-                            <v-progress-linear
-                                color="deep-purple accent-4"
-                                :indeterminate="analyzing"
-                                rounded
-                                height="6"
-                            ></v-progress-linear>
-                        </v-card>
-                    </div>
+                <v-row align="center" justify="center" class="d-print-none">
+                    <v-card width="95%" height="6" justify="center" raised>
+                        <v-progress-linear
+                            color="deep-purple accent-4"
+                            :indeterminate="analyzing"
+                            rounded
+                            height="6"
+                        ></v-progress-linear>
+                    </v-card>
                 </v-row>
                 <br>
             </div>
-            <div style="page-break-after: always;" v-show="analyzed">
-                <v-row align="center" justify="center" class="noPrint">
-                            <v-switch 
-                                v-model="p_switch1" 
-                                color="indigo"
-                                label="Leaf Pos. Error Histogram &emsp;">
-                            </v-switch>
-                            <v-switch 
-                                v-model="p_switch2" 
-                                color="indigo"
-                                label="Leaf Speed Error Histogram &emsp;">
-                            </v-switch>
-                            <v-switch 
-                                v-model="p_switch4" 
-                                color="indigo"
-                                label="MU Comparison Plot">
-                            </v-switch>
-                </v-row>
+            <div style="page-break-after: always;" v-show="analyzed" class="d-print-block">
                 <v-row align="center" justify="center" v-show="p_switch1">
                         <div id='histo_max_pos'></div>
                 </v-row>
@@ -179,18 +276,6 @@
                 <v-row align="center" justify="center" v-show="p_switch4">
                     <div id='line_mu'></div>
                 </v-row>
-                <v-row align="center" justify="center" class="noPrint">
-                    <v-switch 
-                        v-model="p_switch3" 
-                        color="indigo"
-                        label="RMS Position Error per Leaf &emsp;">
-                    </v-switch>
-                    <v-switch 
-                        v-model="p_switch5" 
-                        color="indigo"
-                        label="RMS Speed Error per Leaf &emsp;">
-                    </v-switch>
-                </v-row>
                 <v-row align="center" justify="center" v-show="p_switch3">
                     <div id='bar_rms_p'></div>
                 </v-row>
@@ -198,16 +283,9 @@
                     <div id='bar_rms_v'></div>
                 </v-row>
             </div>
-            <div style="page-break-after: always;" v-show="analyzed">
-                <v-row align="center" justify="center" class="noPrint">
-                    <v-switch 
-                        v-model="t_switch1" 
-                        color="indigo"
-                        label="Print Trajectory Log Statistics">
-                    </v-switch>
-                </v-row>
+            <div style="page-break-after: always;" v-show="analyzed" class="d-print-block">
                 <v-row align="center" justify="center" v-show="t_switch1">
-                    <v-card width="900" height="2200" raised>
+                    <v-card width="95%" height="2250" outlined >
                         <v-card-title>Trajectory Log Analysis:</v-card-title>
                         <v-card-text> 
                             <h4><b>Maximum Error in MLC Leaf Position:</b> {{ error.max_pos | onlysigfigs(4) }} cm  (Leaf {{ error.max_pos_leaf }}{{ error.max_pos_bank}})</h4>
@@ -216,8 +294,7 @@
                             <h4><b>Average RMS Error in MLC Leaf Position:</b> {{ error.rms_pos | onlysigfigs(4) }} cm</h4>
                             <h4><b>Average RMS Error in MLC Leaf Speed:</b> {{ error.rms_vel | onlysigfigs(4) }} cm/s</h4>
                             <br>
-                            <h3>{{ contents2 }}</h3>
-                            <br>
+                            <h3>Leaf Pass/Fail Status</h3>
                             <template>
                                 <v-simple-table dense>
                                     <template v-slot:default>
@@ -243,12 +320,12 @@
                                         <!-- <td>{{ error.leaf_rms.pos_a[index-1] | onlysigfigs(4) }}</td> -->
                                         <td>{{ error.leaf_max.vel_a[index-1] | onlysigfigs(3) }}</td>
                                         <!-- <td>{{ error.leaf_rms.vel_a[index-1] | onlysigfigs(3) }}</td> -->
-                                        <td><b>{{ error.leaf_max.pos_a[index-1] | checkTolerance(0.1) }}</b></td>
+                                        <td><b>{{ error.leaf_max.pos_a[index-1] | checkTolerance(toler.pos) }}</b></td>
                                         <td>{{ error.leaf_max.pos_b[index-1] | onlysigfigs(4) }}</td>
                                         <!-- <td>{{ error.leaf_rms.pos_b[index-1] | onlysigfigs(4) }}</td> -->
                                         <td>{{ error.leaf_max.vel_b[index-1] | onlysigfigs(3) }}</td>
                                         <!-- <td>{{ error.leaf_rms.vel_b[index-1] | onlysigfigs(3) }}</td> -->
-                                        <td><b>{{ error.leaf_max.pos_b[index-1] | checkTolerance(0.1)  }}</b></td>
+                                        <td><b>{{ error.leaf_max.pos_b[index-1] | checkTolerance(toler.pos)  }}</b></td>
                                         </tr>
                                     </tbody>
                                     </template>
@@ -271,15 +348,15 @@
       el: '#app',
       vuetify: new Vuetify(),
       data: {
-        message: 'Pending analysis...',
-        status: true,
+        message: '',
+        satisfactionEmojis: ['😭', '😢', '☹️', '🙁', '😐', '🙂', '😊', '😁', '😄', '😍'],
         loading: false,
         imported: false,
         analyzing: false,
         analyzed: false,
+        minimize: false,
         chosenFile: null,
         contents: '',
-        contents2: '',
         patient: null,
         plan: null,
         field: null,
@@ -295,6 +372,10 @@
         p_switch3: false,
         p_switch4: false,
         p_switch5: false,
+        toler: {
+            pos: 0.1,
+            vel: 0.5,
+        },
         actual: {
             collimator: null,
             gantry: null,
@@ -425,7 +506,6 @@
           },
           importBinary() {
               if (!this.chosenFile) {
-                  this.contents2 = "No File Chosen";
                   return;
               }
               var reader = new FileReader();
@@ -592,12 +672,11 @@
 
                   this.loading = false;
                   this.imported = true;
+                  this.analyzed = false;
               }
           },
           analyzeLogs() {
             if (!this.snaps) {
-                this.contents2 = "No File Chosen";
-                this.analyzing = false;
                 return;
             }
             else{
@@ -753,15 +832,6 @@
                 this.error.max_pos = max;
                 this.error.rms_pos = rms / 120.0;
 
-                if (max > 0.1) { 
-                    this.status = true;
-                    this.message = "Please review detailed results below." 
-                }
-                else { 
-                    this.message = "Well done."
-                    this.status = false; 
-                }
-
                 max = 0.0;
                 rms = 0.0;
                 leaf = 0;
@@ -787,12 +857,15 @@
                 this.error.max_vel = max;
                 this.error.rms_vel = rms / 120.0;
 
-                this.contents2 = "Leaf Pass/Fail Status (Target Deviation = 0.1 cm & 0.5 cm/s):";
                 this.analyzing = false;
                 this.analyzed = true;
             }
           },
           generateCharts() {
+            var settings = {
+                editable: true
+                };
+
             var trace1 = {
                 x: this.error.mlc.pos_a,
                 xbins: {
@@ -832,6 +905,7 @@
                     }
                 }
             };
+             
             var data_pos = [trace1, trace2];
             var layout_pos = {
                 title: 'Leaf Position Error Histogram',
@@ -972,8 +1046,8 @@
             var v_toler = new Float32Array(60);
             for (let i=0; i<60; i++) {
                 leaves[i] = i+1;
-                p_toler[i] = 0.1;
-                v_toler[i] = 0.5;
+                p_toler[i] = this.toler.pos;
+                v_toler[i] = this.toler.vel;
             }
             var trace7 = {
                 x: leaves,
@@ -1010,7 +1084,7 @@
                     color: 'rgb(200, 100, 100, 0.5)',
                     width: 2,
                 },
-                name: 'Tolerance (0.1 cm)',
+                name: 'Tolerance',
             };
             var data_rms_p = [trace7, trace8, trace9];
             var layout_rms_p = {
@@ -1066,7 +1140,7 @@
                     color: 'rgb(200, 100, 100, 0.5)',
                     width: 2,
                 },
-                name: 'Tolerance (0.5 cm/s)',
+                name: 'Tolerance',
             };
             var data_rms_v = [trace10, trace11, trace12];
             var layout_rms_v = {
