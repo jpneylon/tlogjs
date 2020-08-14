@@ -1,0 +1,1112 @@
+<!-- 
+    Written by Jack Neylon, PhD, DABR (2020.08.12)
+    UCLA Department of Radiation Oncology
+
+    Adapted from a Matlab script by Victoria Yu, PhD 
+    
+    Reference for Trajectory Log binary file structure:
+    TrueBeam 2.7 Trajectory Log File Specification
+
+    Reference for MLC leaf speed calculations:
+    https://pdfs.semanticscholar.org/c69a/db83929d25e4143561ce4e85bef9f16fef3a.pdf
+-->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Trajectory Log Analysis</title>
+  <script src="https://jdataview.github.io/dist/jdataview.js"></script>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@mdi/font@5.x/css/materialdesignicons.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
+  <style type="text/css" media="print">
+    .noPrint
+    { display: none; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <v-app>
+        <v-main>
+            <div class="noPrint">
+                <v-row align="center" justify="center">
+                    <v-card width="900" height="220" raised>
+                        <v-card-text>
+                            <v-file-input 
+                                accept=".bin"
+                                label="Select a trajectory log file"
+                                outlined
+                                v-model="chosenFile">
+                            </v-file-input>
+                            <p>{{ contents }}</p>
+                        </v-card-text>
+                        <v-card-actions>
+                            <v-spacer></v-spacer>
+                            <v-btn rounded color="deep-purple accent-4" dark @click="loading=true,parseFilename(),importBinary()">Import File</v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-row>
+                <v-row align="center" justify="center">
+                    <v-card width="900" height="6" justify="center" raised>
+                        <v-progress-linear
+                            color="deep-purple accent-4"
+                            :indeterminate="loading"
+                            rounded
+                            height="6"
+                        ></v-progress-linear>
+                    </v-card>
+                </v-row>
+            </div>
+            <br>
+            <div class="noPrint" v-show="analyzed">
+                <v-row align="center" justify="center">
+                    <v-btn rounded color="deep-purple accent-4" x-large dark onclick="window.print()">Print to PDF</v-btn>
+                </v-row>
+            </div>
+            <br>
+            <div style="page-break-after: always;" v-show="imported">
+                <v-row align="center" justify="center">
+                    <v-card width="900" height="680" raised>
+                        <v-card-title>Plan Information:</v-card-title>
+                        <v-card-text>
+                            <v-simple-table dense>
+                                <template v-slot:default>
+                                    <tbody>
+                                        <tr>
+                                            <td>Patient ID:</td>
+                                            <td>{{ patient }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Plan Name:</td>
+                                            <td>{{ plan }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Date:</td>
+                                            <td>{{ date }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Time:</td>
+                                            <td>{{ time }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Field Name:</td>
+                                            <td>{{ field }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Total MU:</td>
+                                            <td>{{ total_mu | onlysigfigs(2) }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Gantry Rotation (deg):</td>
+                                            <td>{{ actual.gantry | onlysigfigs(3) }} <b>/ {{ expected.gantry | onlysigfigs(2) }}</b></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Collimator Rotation (deg):</td>
+                                            <td>{{ actual.collimator | onlysigfigs(3) }} <b>/ {{ expected.collimator | onlysigfigs(2) }}</b></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Field Size:</td>
+                                            <td>X:&emsp; {{ actual.jaw.x | onlysigfigs(2) }} <b>/ {{ expected.jaw.x | onlysigfigs(2) }}</b>
+                                            <br>Y:&emsp; {{ actual.jaw.y | onlysigfigs(2) }} <b>/ {{ expected.jaw.y | onlysigfigs(2) }}</b></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Jaws:</td>
+                                            <td>X1:&emsp; {{ actual.jaw.x1 | onlysigfigs(2) }} <b>/ {{ expected.jaw.x1 | onlysigfigs(2) }}</b>
+                                            <br>X2:&emsp; {{ actual.jaw.x2 | onlysigfigs(2) }} <b>/ {{ expected.jaw.x2 | onlysigfigs(2) }}</b>
+                                            <br>Y1:&emsp; {{ actual.jaw.y1 | onlysigfigs(2) }} <b>/ {{ expected.jaw.y1 | onlysigfigs(2) }}</b>
+                                            <br>Y2:&emsp; {{ actual.jaw.y2 | onlysigfigs(2) }} <b>/ {{ expected.jaw.y2 | onlysigfigs(2) }}</b></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Couch:</td>
+                                            <td>Lat:&emsp; {{ actual.couch.lat | onlysigfigs(2) }} <b>/ {{ expected.couch.lat | onlysigfigs(2) }}</b>
+                                            <br>Long:&emsp; {{ actual.couch.long | onlysigfigs(2) }} <b>/ {{ expected.couch.long | onlysigfigs(2) }}</b>
+                                            <br>Vert:&emsp; {{ actual.couch.vert | onlysigfigs(2) }} <b>/ {{ expected.couch.vert | onlysigfigs(2) }}</b>
+                                            <br>Rot:&emsp; {{ actual.couch.rot | onlysigfigs(2) }} <b>/ {{ expected.couch.rot | onlysigfigs(2) }}</b></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Results:</td>
+                                            <td><b v-show="!status">{{ error.max_pos | checkTolerance(0.1) }}</b>
+                                            <br><b v-show="status">{{ message }}</b></td>
+                                        </tr>
+                                    </tbody>
+                                </template>
+                            </v-simple-table>
+                        </v-card-text>
+                        <v-card-actions class="d-print-none">
+                            <v-spacer></v-spacer>
+                            <v-btn rounded color="deep-purple accent-4" dark @click="analyzing=true,analyzeLogs(),generateCharts()">Analyze Log</v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-row>
+                <v-row align="center" justify="center">
+                    <div class="noPrint">
+                        <v-card width="900" height="6" justify="center" raised>
+                            <v-progress-linear
+                                color="deep-purple accent-4"
+                                :indeterminate="analyzing"
+                                rounded
+                                height="6"
+                            ></v-progress-linear>
+                        </v-card>
+                    </div>
+                </v-row>
+                <br>
+            </div>
+            <div style="page-break-after: always;" v-show="analyzed">
+                <v-row align="center" justify="center" class="noPrint">
+                            <v-switch 
+                                v-model="p_switch1" 
+                                color="indigo"
+                                label="Leaf Pos. Error Histogram &emsp;">
+                            </v-switch>
+                            <v-switch 
+                                v-model="p_switch2" 
+                                color="indigo"
+                                label="Leaf Speed Error Histogram &emsp;">
+                            </v-switch>
+                            <v-switch 
+                                v-model="p_switch4" 
+                                color="indigo"
+                                label="MU Comparison Plot">
+                            </v-switch>
+                </v-row>
+                <v-row align="center" justify="center" v-show="p_switch1">
+                        <div id='histo_max_pos'></div>
+                </v-row>
+                <v-row align="center" justify="center" v-show="p_switch2" >
+                    <div id='histo_max_vel'></div>
+                </v-row>
+                <v-row align="center" justify="center" v-show="p_switch4">
+                    <div id='line_mu'></div>
+                </v-row>
+                <v-row align="center" justify="center" class="noPrint">
+                    <v-switch 
+                        v-model="p_switch3" 
+                        color="indigo"
+                        label="RMS Position Error per Leaf &emsp;">
+                    </v-switch>
+                    <v-switch 
+                        v-model="p_switch5" 
+                        color="indigo"
+                        label="RMS Speed Error per Leaf &emsp;">
+                    </v-switch>
+                </v-row>
+                <v-row align="center" justify="center" v-show="p_switch3">
+                    <div id='bar_rms_p'></div>
+                </v-row>
+                <v-row align="center" justify="center" v-show="p_switch5">
+                    <div id='bar_rms_v'></div>
+                </v-row>
+            </div>
+            <div style="page-break-after: always;" v-show="analyzed">
+                <v-row align="center" justify="center" class="noPrint">
+                    <v-switch 
+                        v-model="t_switch1" 
+                        color="indigo"
+                        label="Print Trajectory Log Statistics">
+                    </v-switch>
+                </v-row>
+                <v-row align="center" justify="center" v-show="t_switch1">
+                    <v-card width="900" height="2200" raised>
+                        <v-card-title>Trajectory Log Analysis:</v-card-title>
+                        <v-card-text> 
+                            <h4><b>Maximum Error in MLC Leaf Position:</b> {{ error.max_pos | onlysigfigs(4) }} cm  (Leaf {{ error.max_pos_leaf }}{{ error.max_pos_bank}})</h4>
+                            <h4><b>Maximum Error in MLC Leaf Speed:</b> {{ error.max_vel | onlysigfigs(4) }} cm/s  (Leaf {{ error.max_vel_leaf }}{{ error.max_vel_bank}})</h4>
+                            <br>
+                            <h4><b>Average RMS Error in MLC Leaf Position:</b> {{ error.rms_pos | onlysigfigs(4) }} cm</h4>
+                            <h4><b>Average RMS Error in MLC Leaf Speed:</b> {{ error.rms_vel | onlysigfigs(4) }} cm/s</h4>
+                            <br>
+                            <h3>{{ contents2 }}</h3>
+                            <br>
+                            <template>
+                                <v-simple-table dense>
+                                    <template v-slot:default>
+                                    <thead>
+                                        <tr>
+                                        <th class="text-left"><b>Leaf Number</b></th>
+                                        <th class="text-left"><b>Bank A Max Pos. Error (cm)</b></th>
+                                        <!-- <th class="text-left"><b>Bank A RMS Error (cm)</b></th> -->
+                                        <th class="text-left"><b>Bank A Max Speed Error (cm/s)</b></th>
+                                        <!-- <th class="text-left"><b>Bank A RMS Speed Error (cm/s)</b></th> -->
+                                        <th class="text-left"><b>Pass/Fail</b></th>
+                                        <th class="text-left"><b>Bank B Max Pos. Error (cm)</b></th>
+                                        <!-- <th class="text-left"><b>Bank B RMS Error (cm)</b></th> -->
+                                        <th class="text-left"><b>Bank B Max Speed Error (cm/s)</b></th>
+                                        <!-- <th class="text-left"><b>Bank B RMS Speed Error (cm/s)</b></th> -->
+                                        <th class="text-left"><b>Pass/Fail</b></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody v-if="analyzed">
+                                        <tr v-for='index in 60' :key='index'>
+                                        <td><b>{{ index }}</b></td>
+                                        <td>{{ error.leaf_max.pos_a[index-1] | onlysigfigs(4) }}</td>
+                                        <!-- <td>{{ error.leaf_rms.pos_a[index-1] | onlysigfigs(4) }}</td> -->
+                                        <td>{{ error.leaf_max.vel_a[index-1] | onlysigfigs(3) }}</td>
+                                        <!-- <td>{{ error.leaf_rms.vel_a[index-1] | onlysigfigs(3) }}</td> -->
+                                        <td><b>{{ error.leaf_max.pos_a[index-1] | checkTolerance(0.1) }}</b></td>
+                                        <td>{{ error.leaf_max.pos_b[index-1] | onlysigfigs(4) }}</td>
+                                        <!-- <td>{{ error.leaf_rms.pos_b[index-1] | onlysigfigs(4) }}</td> -->
+                                        <td>{{ error.leaf_max.vel_b[index-1] | onlysigfigs(3) }}</td>
+                                        <!-- <td>{{ error.leaf_rms.vel_b[index-1] | onlysigfigs(3) }}</td> -->
+                                        <td><b>{{ error.leaf_max.pos_b[index-1] | checkTolerance(0.1)  }}</b></td>
+                                        </tr>
+                                    </tbody>
+                                    </template>
+                                </v-simple-table>
+                            </template>
+                        </v-card-text>
+                    </v-card>
+                </v-row>
+            </div>
+        </v-main>
+    </v-app>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.11"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/vue@2.x/dist/vue.js"></script> -->
+  <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js" charset="utf-8"></script>
+  <script>
+    var app = new Vue({
+      el: '#app',
+      vuetify: new Vuetify(),
+      data: {
+        message: 'Pending analysis...',
+        status: true,
+        loading: false,
+        imported: false,
+        analyzing: false,
+        analyzed: false,
+        chosenFile: null,
+        contents: '',
+        contents2: '',
+        patient: null,
+        plan: null,
+        field: null,
+        date: null,
+        time: null,
+        field: null,
+        total_mu: null,
+        snaps: null,
+        interval: null,
+        t_switch1: true,
+        p_switch1: false,
+        p_switch2: false,
+        p_switch3: false,
+        p_switch4: false,
+        p_switch5: false,
+        actual: {
+            collimator: null,
+            gantry: null,
+            couch: {
+                vert: null,
+                lat: null,
+                long: null,
+                rot: null,
+                pitch: null,
+                roll: null,
+            },
+            jaw: {
+                y: null,
+                y1: null,
+                y2: null,
+                x: null,
+                x1: null,
+                x2: null
+            },
+            mlc: {
+                car_a: null,
+                car_b: null,
+                leaf_a: null,
+                leaf_b: null,
+                speed_a: null,
+                speed_b: null,
+            },
+            mu: null,
+        },
+        expected: {
+            collimator: null,
+            gantry: null,
+            couch: {
+                vert: null,
+                lat: null,
+                long: null,
+                rot: null,
+                pitch: null,
+                roll: null,
+            },
+            jaw: {
+                y: null,
+                y1: null,
+                y2: null,
+                x: null,
+                x1: null,
+                x2: null
+            },
+            mlc: {
+                car_a: null,
+                car_b: null,
+                leaf_a: null,
+                leaf_a: null,
+                speed_a: null,
+                speed_b: null,
+            },
+            mu: null,
+        },
+        error: {
+            mlc: {
+                pos_a: null,
+                pos_b: null,
+                vel_a: null,
+                vel_b: null,
+            },
+            leaf_max: {
+                pos_a: null,
+                pos_b: null,
+                vel_a: null,
+                vel_b: null,
+            },
+            leaf_rms: {
+                pos_a: null,
+                pos_b: null,
+                vel_a: null,
+                vel_b: null,
+            },
+            max_pos: null,
+            rms_pos: null,
+            max_pos_leaf: null,
+            max_pos_bank: null,
+            max_vel: null,
+            rms_vel: null,
+            max_vel_leaf: null,
+            max_vel_bank: null,
+        },
+      },
+      methods: {
+          parseFilename() {
+            if (!this.chosenFile) {
+                this.contents = 'Please select a file first!';
+                this.loading = false;
+                return
+            }
+            var filename = this.chosenFile.name;
+            var str = filename.split("_");
+
+            this.patient = str[0];
+            this.plan = str[1];
+            this.field = str[2];
+
+            var str2 = str[3].split(".");
+            var str3 = str2[0];
+
+            var datestring = str3.slice(0,4);
+            datestring += "-";
+            datestring += str3.slice(4,6);
+            datestring += "-";
+            datestring += str3.slice(6,8);
+
+            var timestring = str3.slice(8,10);
+            timestring += ":";
+            timestring += str3.slice(10,12);
+            timestring += ":";
+            timestring += str3.slice(12,14);
+
+            this.date = datestring;
+            this.time = timestring;
+
+            document.title = "TLOG-" + this.plan + "-" + this.field + "-" + this.date;
+            this.message = "Results pending...";
+            /*
+            console.log("Patient " + this.patient);
+            console.log("Plan: " + this.plan);
+            console.log("Date: " + datestring);
+            console.log("Time: " + timestring);
+            */
+          },
+          importBinary() {
+              if (!this.chosenFile) {
+                  this.contents2 = "No File Chosen";
+                  return;
+              }
+              var reader = new FileReader();
+              reader.readAsArrayBuffer(this.chosenFile);
+              reader.onload = () => {
+                  var array = reader.result;
+                  var buf = new jDataView(array);
+                  
+                  var signature = buf.getString(16);
+                  console.log("signature : " + signature + "(" + buf.tell() + ")");
+                  var version = buf.getString(16);
+                  console.log("version : " + version + "(" + buf.tell() + ")");
+                  var header_size = buf.getInt16(32, true);
+                  console.log("header_size : " + header_size + "(" + buf.tell() + ")");
+
+                  var sample_interval = buf.getInt8(36, true);
+                  this.interval = sample_interval;
+                  console.log("sample_interval : " + sample_interval + "(" + buf.tell() + ")");
+
+                  var num_axes = buf.getInt8(40, true);
+                  console.log("num_axes : " + num_axes + "(" + buf.tell() + ")");
+
+                  var enum_size = num_axes*4;
+                  var update_ind = enum_size*2; 
+                  console.log("update_ind : " + update_ind);
+
+                  var enum_array = array.slice(44, 44 + enum_size);
+                  var enum_data = new Int32Array(enum_array);
+                  console.log("Enum Array: " + enum_data);
+
+                  var sample_array = array.slice(44 + enum_size, 44 + 2*enum_size);
+                  var sample_data = new Int32Array(sample_array);
+                  console.log("Sample Array: " + sample_data);
+                  
+                  var scale = buf.getInt8(update_ind + 44, true);
+                  console.log("scale id : " + scale + "(" + buf.tell() + ")");
+                  var axis_scale = "Modified IEC 61217";
+                  if (scale==1) {axis_scale = "Machine Scale"}
+                  console.log("axis_scale : " + axis_scale);
+
+                  var num_sub_beams = buf.getInt8(update_ind + 48, true);
+                  console.log("num_sub_beams : " + num_sub_beams + "(" + buf.tell() + ")");
+
+                  var num_snaps = buf.getInt32(update_ind + 56, true);
+                  this.snaps = num_snaps;
+                  console.log("num_snaps : " + num_snaps + "(" + buf.tell() + ")");
+
+                  var model = buf.getInt8(update_ind + 60, true);
+                  console.log("model id : " + model + "(" + buf.tell() + ")");
+                  var mlc_model = "NDS 120 HD";
+                  if (model == 2) {mlc_model = "NDS 120"}
+                  console.log("mlc_model : " + mlc_model);
+
+                  var cp = buf.getInt16(header_size, true);
+                  console.log("cp : " + cp + "(" + buf.tell() + ")");
+                
+                  this.total_mu = buf.getFloat32(header_size + 4, true);
+                  console.log("mu : " + this.total_mu + "(" + buf.tell() + ")");
+                
+                  var rad_time = buf.getFloat32(header_size + 8, true);
+                  console.log("rad_time : " + rad_time + "(" + buf.tell() + ")");
+
+                  this.field = buf.getString(32, header_size + 16);
+                  console.log("field_name : " + this.field + "(" + buf.tell() + ")");
+
+                  var num_values = (num_axes + 122 - 1)*2;
+                  var axis_data_offset = header_size + num_sub_beams * 560;
+                  var axis_data_size = num_values*num_snaps*4;
+                  var axis_array = array.slice(axis_data_offset, axis_data_offset + axis_data_size);
+                  var axis_data = new Float32Array(axis_array);
+
+                  /*
+                    0-1        Collimator Rotation
+                    2-3        Gantry Rotation
+                    4-5        Y1 Jaw
+                    6-7        Y2 Jaw
+                    8-9        X1 Jaw
+                    10-11      X2 Jaw
+                    12-13      Couch Vert
+                    14-15      Couch Long
+                    16-17      Couch Lat
+                    18-19      Couch Rotation
+                    20-21      Couch Pitch
+                    22-23      Couch Roll
+                    24-25      MU
+                    26-27      Beam Hold
+                    28-29      Control Point
+                    30-31      MLC Car A
+                    32-33      MLC Car B
+                    34-153     MLC Car A Leaves
+                    154-273    MLC Car B Leaves
+                  */
+
+                  this.expected.collimator = 180 - axis_data[0];
+                  this.actual.collimator = 180 - axis_data[1];
+
+                  this.expected.gantry = (540 - axis_data[2]) % 360;
+                  this.actual.gantry = (540 - axis_data[3]) % 360;
+
+                  this.expected.jaw.y1 = axis_data[4];
+                  this.expected.jaw.y2 = axis_data[6];
+                  this.expected.jaw.y = axis_data[4] + axis_data[6];
+                  this.actual.jaw.y1 = axis_data[5];
+                  this.actual.jaw.y2 = axis_data[7];
+                  this.actual.jaw.y = axis_data[5] + axis_data[7];                
+                  this.expected.jaw.x1 = axis_data[8];
+                  this.expected.jaw.x2 = axis_data[10];           
+                  this.expected.jaw.x = axis_data[8] + axis_data[10];   
+                  this.actual.jaw.x1 = axis_data[9];
+                  this.actual.jaw.x2 = axis_data[11];
+                  this.actual.jaw.x = axis_data[9] + axis_data[11];                
+
+                  this.expected.couch.vert = axis_data[12];
+                  this.actual.couch.vert = axis_data[13];
+                  this.expected.couch.long = axis_data[14];
+                  this.actual.couch.long = axis_data[15];
+                  this.expected.couch.lat = axis_data[16];
+                  this.actual.couch.lat = axis_data[17];
+                  this.expected.couch.rot = axis_data[18];
+                  this.actual.couch.rot = axis_data[19];
+                  this.expected.couch.pitch = axis_data[20];
+                  this.actual.couch.pitch = axis_data[21];
+                  this.expected.couch.roll = axis_data[22];
+                  this.actual.couch.roll = axis_data[23];
+                  
+                  console.log("Collimator: " + this.actual.collimator + " / " + this.expected.collimator);
+                  console.log("Gantry: " + this.actual.gantry + " / " + this.expected.gantry);
+                  console.log("Y1: " + this.actual.jaw.y1 + " / " + this.expected.jaw.y1);
+                  console.log("Y2: " + this.actual.jaw.y2 + " / " + this.expected.jaw.y2);
+                  console.log("X1: " + this.actual.jaw.x1 + " / " + this.expected.jaw.x1);
+                  console.log("X2: " + this.actual.jaw.x2 + " / " + this.expected.jaw.x2);
+                  console.log("Couch: " + this.actual.couch.lat + "/" + this.actual.couch.long + "/" + this.actual.couch.vert);
+                  console.log("Couch: " + this.expected.couch.lat + "/" + this.expected.couch.long + "/" + this.expected.couch.vert);
+                  console.log("Couch Rotation: " + this.actual.couch.rot + " / " + this.expected.couch.rot);
+
+                  this.actual.mu = new Float32Array(num_snaps);
+                  this.expected.mu = new Float32Array(num_snaps);
+                  this.actual.mlc.car_a = new Float32Array(num_snaps);
+                  this.actual.mlc.car_b = new Float32Array(num_snaps);
+                  this.expected.mlc.car_a = new Float32Array(num_snaps);
+                  this.expected.mlc.car_b = new Float32Array(num_snaps);
+                  this.actual.mlc.leaf_a = new Float32Array(60 * num_snaps);
+                  this.actual.mlc.leaf_b = new Float32Array(60 * num_snaps);
+                  this.expected.mlc.leaf_a = new Float32Array(60 * num_snaps);
+                  this.expected.mlc.leaf_b = new Float32Array(60 * num_snaps);
+
+                  for (let i = 0; i < num_snaps; i++) {
+                      this.expected.mu[i] = axis_data[num_values*i + 24];
+                      this.actual.mu[i] = axis_data[num_values*i + 25];
+                      this.expected.mlc.car_a[i] = axis_data[num_values*i + 30];
+                      this.actual.mlc.car_a[i] = axis_data[num_values*i + 31];
+                      this.expected.mlc.car_b[i] = axis_data[num_values*i + 32];
+                      this.actual.mlc.car_b[i] = axis_data[num_values*i + 33];
+                      //console.log("snap = " + i + "; exp = " + axis_data[num_values*i + 64] + "; act = " + axis_data[num_values*i + 65]);
+                      for (let j = 0; j < 60; j++) {
+                        this.expected.mlc.leaf_a[60*i + j] = axis_data[num_values*i + 2*j + 34];
+                        this.actual.mlc.leaf_a[60*i + j] = axis_data[num_values*i + 2*j + 35];
+                        this.expected.mlc.leaf_b[60*i + j] = axis_data[num_values*i + 2*j + 154];
+                        this.actual.mlc.leaf_b[60*i + j] = axis_data[num_values*i + 2*j + 155];                         
+                      }
+                  }
+
+                  // console.table([this.actual.mlc.leaf_a,this.expected.mlc.leaf_a]);
+
+                  this.loading = false;
+                  this.imported = true;
+              }
+          },
+          analyzeLogs() {
+            if (!this.snaps) {
+                this.contents2 = "No File Chosen";
+                this.analyzing = false;
+                return;
+            }
+            else{
+                this.actual.mlc.speed_a = new Float32Array(60 * this.snaps);
+                this.actual.mlc.speed_b = new Float32Array(60 * this.snaps);
+                this.expected.mlc.speed_a = new Float32Array(60 * this.snaps);
+                this.expected.mlc.speed_b = new Float32Array(60 * this.snaps);
+
+                this.error.mlc.pos_a = new Float32Array(60 * this.snaps);
+                this.error.mlc.pos_b = new Float32Array(60 * this.snaps);
+                this.error.mlc.vel_a = new Float32Array(60 * this.snaps);
+                this.error.mlc.vel_b = new Float32Array(60 * this.snaps);
+                
+                var delta_t = this.interval / 1000.0;
+                // console.log("Time Step (s): " + delta_t);
+
+                for (let s = 0; s < this.snaps; s++) {
+                    for (let l = 0; l < 60; l++) {
+                        var a_a_pos = this.actual.mlc.leaf_a[60*s + l];
+                        var e_a_pos = this.expected.mlc.leaf_a[60*s + l];
+                        this.error.mlc.pos_a[60*s + l] = e_a_pos - a_a_pos;
+
+                        var a_b_pos = this.actual.mlc.leaf_b[60*s + l];
+                        var e_b_pos = this.expected.mlc.leaf_b[60*s + l];
+                        this.error.mlc.pos_b[60*s + l] = e_b_pos - a_b_pos;
+
+                        if (s < 2 || s > this.snaps-3)
+                        {
+                            this.actual.mlc.speed_a[60*s + l] = 0;
+                            this.actual.mlc.speed_b[60*s + l] = 0;
+                            this.expected.mlc.speed_a[60*s + l] = 0;
+                            this.expected.mlc.speed_b[60*s + l] = 0;
+                            this.error.mlc.vel_a[60*s + l] = 0;
+                            this.error.mlc.vel_b[60*s + l] = 0;
+                        }
+                        else
+                        {
+                            var a_a_p2 = this.actual.mlc.leaf_a[60*(s+2) + l];
+                            var a_a_p1 = this.actual.mlc.leaf_a[60*(s+1) + l];
+                            var a_a_m1 = this.actual.mlc.leaf_a[60*(s-1) + l];
+                            var a_a_m2 = this.actual.mlc.leaf_a[60*(s-2) + l];
+                            var a_a_vel = (8*a_a_p1 + a_a_m1 - a_a_p2 - 8*a_a_m2) / (12 * delta_t);
+                            this.actual.mlc.speed_a[60*s + l] = a_a_vel;
+                        
+                            var a_b_p2 = this.actual.mlc.leaf_b[60*(s+2) + l];
+                            var a_b_p1 = this.actual.mlc.leaf_b[60*(s+1) + l];
+                            var a_b_m1 = this.actual.mlc.leaf_b[60*(s-1) + l];
+                            var a_b_m2 = this.actual.mlc.leaf_b[60*(s-2) + l];
+                            var a_b_vel = (8*a_b_p1 + a_b_m1 - a_b_p2 - 8*a_b_m2) / (12 * delta_t);
+                            this.actual.mlc.speed_b[60*s + l] = a_b_vel;
+
+                            var e_a_p2 = this.expected.mlc.leaf_a[60*(s+2) + l];
+                            var e_a_p1 = this.expected.mlc.leaf_a[60*(s+1) + l];
+                            var e_a_m1 = this.expected.mlc.leaf_a[60*(s-1) + l];
+                            var e_a_m2 = this.expected.mlc.leaf_a[60*(s-2) + l];
+                            var e_a_vel = (8*e_a_p1 + e_a_m1 - e_a_p2 - 8*e_a_m2) / (12 * delta_t);
+                            this.expected.mlc.speed_a[60*s + l] = e_a_vel;
+
+                            var e_b_p2 = this.expected.mlc.leaf_b[60*(s+2) + l];
+                            var e_b_p1 = this.expected.mlc.leaf_b[60*(s+1) + l];
+                            var e_b_m1 = this.expected.mlc.leaf_b[60*(s-1) + l];
+                            var e_b_m2 = this.expected.mlc.leaf_b[60*(s-2) + l];
+                            var e_b_vel = (8*e_b_p1 + e_b_m1 - e_b_p2 - 8*e_b_m2) / (12 * delta_t);
+                            this.expected.mlc.speed_b[60*s + l] = e_b_vel;
+
+                            this.error.mlc.vel_a[60*s + l] = e_a_vel - a_a_vel;
+                            this.error.mlc.vel_b[60*s + l] = e_b_vel - a_b_vel;
+                        }
+                    }
+                }
+
+                //console.table([this.error.mlc.pos_a]);
+                //console.table([this.error.mlc.vel_a]);
+
+                this.error.leaf_max.pos_a = new Float32Array(60);
+                this.error.leaf_max.pos_b = new Float32Array(60);
+                this.error.leaf_max.vel_a = new Float32Array(60);
+                this.error.leaf_max.vel_b = new Float32Array(60);
+
+                this.error.leaf_rms.pos_a = new Float32Array(60);
+                this.error.leaf_rms.pos_b = new Float32Array(60);
+                this.error.leaf_rms.vel_a = new Float32Array(60);
+                this.error.leaf_rms.vel_b = new Float32Array(60);
+
+                for (let l = 0; l < 60; l++) {
+                    var p_sum_a = 0.0;
+                    var p_sum_b = 0.0;
+                    var v_sum_a = 0.0;
+                    var v_sum_b = 0.0;
+
+                    var v_pos_a = 0.0;
+                    var v_pos_b = 0.0;
+                    var v_vel_a = 0.0;
+                    var v_vel_b = 0.0;
+
+                    for (let s = 0; s < this.snaps; s++) {
+                        var check = Math.abs(this.error.mlc.pos_a[60*s + l]);
+                        p_sum_a += check*check;
+                        if (check > v_pos_a) {
+                            v_pos_a = check;
+                        }
+                        
+                        check = Math.abs(this.error.mlc.pos_b[60*s + l]);
+                        p_sum_b += check*check;
+                        if (check > v_pos_b) {
+                            v_pos_b = check;
+                        }
+                        
+                        check = Math.abs(this.error.mlc.vel_a[60*s + l]);
+                        v_sum_a += check*check;
+                        if (check > v_vel_a) {
+                            v_vel_a = check;
+                        }
+                        
+                        check = Math.abs(this.error.mlc.vel_b[60*s + l]);
+                        v_sum_b += check*check;
+                        if (check > v_vel_b) {
+                            v_vel_b = check;
+                        }
+                    }
+                    this.error.leaf_rms.pos_a[l] = Math.sqrt(p_sum_a / this.snaps);
+                    this.error.leaf_rms.pos_b[l] = Math.sqrt(p_sum_b / this.snaps);
+                    this.error.leaf_rms.vel_a[l] = Math.sqrt(v_sum_a / this.snaps);
+                    this.error.leaf_rms.vel_b[l] = Math.sqrt(v_sum_b / this.snaps);
+                    this.error.leaf_max.pos_a[l] = v_pos_a;
+                    this.error.leaf_max.pos_b[l] = v_pos_b;
+                    this.error.leaf_max.vel_a[l] = v_vel_a;
+                    this.error.leaf_max.vel_b[l] = v_vel_b;
+                }
+
+                var max = 0.0;
+                var rms = 0.0;
+                var leaf = 0;
+                var bank = 'A';
+                for (let l = 0; l < 60; l++) {
+                    var check = Math.abs(this.error.leaf_max.pos_a[l]);
+                    rms += check;
+                    if (check > max) {
+                        leaf = l;
+                        bank = 'A';
+                        max = check;
+                    }
+                    check = Math.abs(this.error.leaf_max.pos_b[l]);
+                    rms += check;
+                    if (check > max) {
+                        leaf = l;
+                        bank = 'B';
+                        max = check;
+                    }
+                }
+                this.error.max_pos_leaf = leaf + 1;
+                this.error.max_pos_bank = bank;
+                this.error.max_pos = max;
+                this.error.rms_pos = rms / 120.0;
+
+                if (max > 0.1) { 
+                    this.status = true;
+                    this.message = "Please review detailed results below." 
+                }
+                else { 
+                    this.message = "Well done."
+                    this.status = false; 
+                }
+
+                max = 0.0;
+                rms = 0.0;
+                leaf = 0;
+                bank = 'A';
+                for (let l = 0; l < 60; l++) {
+                    var check = Math.abs(this.error.leaf_max.vel_a[l]);
+                    rms += check;
+                    if (check > max) {
+                        leaf = l;
+                        bank = 'A';
+                        max = check;
+                    }
+                    check = Math.abs(this.error.leaf_max.vel_b[l]);
+                    rms += check;
+                    if (check > max) {
+                        leaf = l;
+                        bank = 'B';
+                        max = check;
+                    }
+                }
+                this.error.max_vel_leaf = leaf + 1;
+                this.error.max_vel_bank = bank;
+                this.error.max_vel = max;
+                this.error.rms_vel = rms / 120.0;
+
+                this.contents2 = "Leaf Pass/Fail Status (Target Deviation = 0.1 cm & 0.5 cm/s):";
+                this.analyzing = false;
+                this.analyzed = true;
+            }
+          },
+          generateCharts() {
+            var trace1 = {
+                x: this.error.mlc.pos_a,
+                xbins: {
+                    end: 0.100, 
+                    size: 0.0001, 
+                    start: -0.100
+                },
+                name: 'Bank A Leaf Position Error',
+                autobinx: false,
+                histnorm: 'count',
+                type: 'histogram',
+                opacity: 0.75,
+                marker: {
+                    color: "rgba(100, 100, 202, 0.7)",
+                    line: {
+                        color:  "rgba(100, 100, 202, 1.0)", 
+                        width: 1
+                    }
+                }
+            };
+            var trace2 = {
+                x: this.error.mlc.pos_b,
+                xbins: {
+                    end: 0.100, 
+                    size: 0.0001, 
+                    start: -0.100
+                },
+                name: 'Bank B Leaf Position Error',
+                autobinx: false,
+                type: 'histogram',
+                opacity: 0.75,
+                marker: {
+                    color: "rgba(100, 200, 102, 0.7)",
+                    line: {
+                        color:  "rgba(100, 200, 102, 1.0)", 
+                        width: 1
+                    }
+                }
+            };
+            var data_pos = [trace1, trace2];
+            var layout_pos = {
+                title: 'Leaf Position Error Histogram',
+                autosize: false,
+                width: 860,
+                height: 525,
+                xaxis: {
+                    title: 'Error (cm)',
+                    showgrid: false,
+                    zeroline: false,
+                    range: [-0.1,0.1]
+                },
+                yaxis: {
+                    title: 'Leaves * Snapshots',
+                    showline: false,
+                    range: [0,2500]
+                },
+                legend: {
+                    x: 1,
+                    xanchor: 'right',
+                    y: 0.5,
+                    bgcolor: "rgba(255,255,255,0.5)"
+                },
+                bargap: 0.05,
+                bargroupgap: 0.2,
+                barmode: 'overlay',
+            };
+
+            var trace3 = {
+                x: this.error.mlc.vel_a,
+                xbins: {
+                    end: 0.50, 
+                    size: 0.001, 
+                    start: -0.50
+                },
+                name: 'Bank A Leaf Speed Error',
+                autobinx: false,
+                type: 'histogram',
+                opacity: 0.75,
+                marker: {
+                    color: "rgba(100, 100, 202, 0.7)",
+                    line: {
+                        color:  "rgba(100, 100, 202, 1.0)", 
+                        width: 1
+                    }
+                }
+            };
+            var trace4 = {
+                x: this.error.mlc.vel_b,
+                xbins: {
+                    end: 0.50, 
+                    size: 0.001, 
+                    start: -0.50
+                },
+                name: 'Bank B Leaf Speed Error',
+                autobinx: false,
+                type: 'histogram',
+                opacity: 0.75,
+                marker: {
+                    color: "rgba(100, 200, 102, 0.7)",
+                    line: {
+                        color:  "rgba(100, 200, 102, 1.0)", 
+                        width: 1
+                    }
+                }
+            };
+            var data_vel = [trace3, trace4];
+            var layout_vel = {
+                title: 'Leaf Speed Error Histogram',
+                autosize: false,
+                width: 860,
+                height: 525,
+                xaxis: {
+                    title: 'Error (cm/s)',
+                    showgrid: false,
+                    zeroline: false,
+                    range: [-0.5, 0.5]
+                },
+                yaxis: {
+                    title: 'Leaves * Snapshots',
+                    showline: false,
+                    range: [0, 1000]
+                },
+                legend: {
+                    x: 1,
+                    xanchor: 'right',
+                    y: 0.5,
+                    bgcolor: "rgba(255,255,255,0.5)"
+                },
+                bargap: 0.05,
+                bargroupgap: 0.2,
+                barmode: 'overlay',
+            };
+
+            var timer = new Float32Array(this.snaps);
+            for (let t = 0; t < this.snaps; t++) {
+                timer[t] = this.interval * t / 1000.0;
+            }
+            var trace5 = {
+                x: timer,
+                y: this.expected.mu,
+                mode: 'lines',
+                line: {
+                    color: 'rgb(100, 200, 102, 0.9)',
+                    width: 2
+                },
+                name: 'Expected MU',
+            };
+            var trace6 = {
+                x: timer,
+                y: this.actual.mu,
+                mode: 'lines',
+                opacity: 0.75,
+                line: {
+                    color: 'rgb(100, 100, 202, 0.1)',
+                    width: 2
+                },
+                name: 'Actual MU',
+            };
+            var data_mu = [trace5, trace6];
+            var layout_mu = {
+                title: 'Gating Analysis of Delivered MU',
+                autosize: false,
+                width: 860,
+                height: 525,
+                legend: {
+                    x: 1,
+                    xanchor: 'right',
+                    y: 0.5,
+                    bgcolor: "rgba(255,255,255,0.5)"
+                },
+                xaxis: {title: 'Time (s)'},
+                yaxis: {title: 'MU'}
+            };
+
+            var leaves = new Int16Array(60);
+            var p_toler = new Float32Array(60);
+            var v_toler = new Float32Array(60);
+            for (let i=0; i<60; i++) {
+                leaves[i] = i+1;
+                p_toler[i] = 0.1;
+                v_toler[i] = 0.5;
+            }
+            var trace7 = {
+                x: leaves,
+                y: this.error.leaf_rms.pos_a,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 100, 202, 0.7)",
+                    line: {
+                        color:  "rgba(100, 100, 202, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank A',
+            };
+            var trace8 = {
+                x: leaves,
+                y: this.error.leaf_rms.pos_b,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 200, 102, 0.7)",
+                    line: {
+                        color:  "rgba(100, 200, 102, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank B',
+            };
+            var trace9 = {
+                x: leaves,
+                y: p_toler,
+                type: 'scatter',
+                opacity: 0.75,
+                line: {
+                    color: 'rgb(200, 100, 100, 0.5)',
+                    width: 2,
+                },
+                name: 'Tolerance (0.1 cm)',
+            };
+            var data_rms_p = [trace7, trace8, trace9];
+            var layout_rms_p = {
+                title: 'RMS Error - Leaf Position',
+                autosize: false,
+                width: 860,
+                height: 525,
+                legend: {
+                    x: 1,
+                    xanchor: 'right',
+                    y: 0.5,
+                    bgcolor: "rgba(255,255,255,0.5)"
+                },
+                xaxis: {title: 'Leaf'},
+                yaxis: {title: 'RMS Error (cm)'},
+                bargap: 0.05,
+                bargroupgap: 0.2,
+                barmode: 'overlay',
+            };
+
+            var trace10 = {
+                x: leaves,
+                y: this.error.leaf_rms.vel_a,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 100, 202, 0.7)",
+                    line: {
+                        color:  "rgba(100, 100, 202, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank A',
+            };
+            var trace11 = {
+                x: leaves,
+                y: this.error.leaf_rms.vel_b,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 200, 102, 0.7)",
+                    line: {
+                        color:  "rgba(100, 200, 102, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank B',
+            };
+            var trace12 = {
+                x: leaves,
+                y: v_toler,
+                type: 'scatter',
+                opacity: 0.75,
+                line: {
+                    color: 'rgb(200, 100, 100, 0.5)',
+                    width: 2,
+                },
+                name: 'Tolerance (0.5 cm/s)',
+            };
+            var data_rms_v = [trace10, trace11, trace12];
+            var layout_rms_v = {
+                title: 'RMS Error - Leaf Speed',
+                autosize: false,
+                width: 860,
+                height: 525,
+                legend: {
+                    x: 1,
+                    xanchor: 'right',
+                    y: 0.5,
+                    bgcolor: "rgba(255,255,255,0.5)"
+                },
+                xaxis: {title: 'Leaf'},
+                yaxis: {title: 'RMS Error (cm/s)'},
+                bargap: 0.05,
+                bargroupgap: 0.2,
+                barmode: 'overlay',
+            };
+
+            Plotly.newPlot('histo_max_pos', data_pos, layout_pos);
+            Plotly.newPlot('histo_max_vel', data_vel, layout_vel);
+            Plotly.newPlot('line_mu', data_mu, layout_mu);
+            Plotly.newPlot('bar_rms_p', data_rms_p, layout_rms_p);
+            Plotly.newPlot('bar_rms_v', data_rms_v, layout_rms_v);
+          }
+      },
+      filters: {
+          onlysigfigs: function (value, figs) {
+              if (!value) return '0'
+              value = value.toFixed(figs);
+              return value;
+          },
+          checkTolerance: function(value, tolerance) {
+              if (!value) return 'n/a'
+              if (value > tolerance) return 'Fail'
+              if (value < tolerance) return 'Pass'
+          },
+      },
+    })
+  </script>
+</body>
+</html>
