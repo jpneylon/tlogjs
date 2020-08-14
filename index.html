@@ -151,7 +151,7 @@
                     <v-switch 
                         v-model="t_switch1" 
                         color="indigo"
-                        label="Print Trajectory Log Statistics">
+                        label="Results Data Table">
                     </v-switch>
                 </v-list-item>
             </v-list>
@@ -165,7 +165,7 @@
                         <v-card-text>
                             <v-file-input 
                                 accept=".bin"
-                                label="Select a trajectory log file"
+                                :label="contents"
                                 outlined
                                 v-model="chosenFile">
                             </v-file-input>
@@ -286,7 +286,7 @@
             <div style="page-break-after: always;" v-show="analyzed" class="d-print-block">
                 <v-row align="center" justify="center" v-show="t_switch1">
                     <v-card width="95%" height="2250" outlined >
-                        <v-card-title>Trajectory Log Analysis:</v-card-title>
+                        <v-card-title>Trajectory Log Analysis Results:</v-card-title>
                         <v-card-text> 
                             <h4><b>Maximum Error in MLC Leaf Position:</b> {{ error.max_pos | onlysigfigs(4) }} cm  (Leaf {{ error.max_pos_leaf }}{{ error.max_pos_bank}})</h4>
                             <h4><b>Maximum Error in MLC Leaf Speed:</b> {{ error.max_vel | onlysigfigs(4) }} cm/s  (Leaf {{ error.max_vel_leaf }}{{ error.max_vel_bank}})</h4>
@@ -356,7 +356,7 @@
         analyzed: false,
         minimize: false,
         chosenFile: null,
-        contents: '',
+        contents: 'Select a trajectory log file',
         patient: null,
         plan: null,
         field: null,
@@ -466,7 +466,8 @@
       methods: {
           parseFilename() {
             if (!this.chosenFile) {
-                this.contents = 'Please select a file first!';
+                this.contents = 'Please select a trajectory log file first!';
+                imported = false;
                 this.loading = false;
                 return
             }
@@ -1060,7 +1061,20 @@
                         width: 1
                     }
                 },
-                name: 'Bank A',
+                name: 'Bank A RMS Error',
+            };
+            var trace7a = {
+                x: leaves,
+                y: this.error.leaf_max.pos_a,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 100, 152, 0.4)",
+                    line: {
+                        color:  "rgba(100, 100, 152, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank A Max Error',
             };
             var trace8 = {
                 x: leaves,
@@ -1073,7 +1087,20 @@
                         width: 1
                     }
                 },
-                name: 'Bank B',
+                name: 'Bank B RMS Error',
+            };
+            var trace8a = {
+                x: leaves,
+                y: this.error.leaf_max.pos_b,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 150, 102, 0.4)",
+                    line: {
+                        color:  "rgba(100, 150, 102, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank B Max Error',
             };
             var trace9 = {
                 x: leaves,
@@ -1086,9 +1113,9 @@
                 },
                 name: 'Tolerance',
             };
-            var data_rms_p = [trace7, trace8, trace9];
+            var data_rms_p = [trace7, trace7a, trace8, trace8a, trace9];
             var layout_rms_p = {
-                title: 'RMS Error - Leaf Position',
+                title: 'Leaf Position Error',
                 autosize: false,
                 width: 860,
                 height: 525,
@@ -1099,7 +1126,7 @@
                     bgcolor: "rgba(255,255,255,0.5)"
                 },
                 xaxis: {title: 'Leaf'},
-                yaxis: {title: 'RMS Error (cm)'},
+                yaxis: {title: 'Position Error (cm)'},
                 bargap: 0.05,
                 bargroupgap: 0.2,
                 barmode: 'overlay',
@@ -1116,7 +1143,20 @@
                         width: 1
                     }
                 },
-                name: 'Bank A',
+                name: 'Bank A RMS Error',
+            };
+            var trace10a = {
+                x: leaves,
+                y: this.error.leaf_max.vel_a,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 100, 152, 0.4)",
+                    line: {
+                        color:  "rgba(100, 100, 152, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank A Max Error',
             };
             var trace11 = {
                 x: leaves,
@@ -1129,7 +1169,20 @@
                         width: 1
                     }
                 },
-                name: 'Bank B',
+                name: 'Bank B RMS Error',
+            };
+            var trace11a = {
+                x: leaves,
+                y: this.error.leaf_max.vel_b,
+                type: 'bar',
+                marker: {
+                    color: "rgba(100, 150, 102, 0.4)",
+                    line: {
+                        color:  "rgba(100, 150, 102, 1.0)", 
+                        width: 1
+                    }
+                },
+                name: 'Bank B Max Error',
             };
             var trace12 = {
                 x: leaves,
@@ -1142,9 +1195,9 @@
                 },
                 name: 'Tolerance',
             };
-            var data_rms_v = [trace10, trace11, trace12];
+            var data_rms_v = [trace10, trace10a, trace11, trace11a, trace12];
             var layout_rms_v = {
-                title: 'RMS Error - Leaf Speed',
+                title: 'Leaf Speed Error',
                 autosize: false,
                 width: 860,
                 height: 525,
@@ -1155,7 +1208,7 @@
                     bgcolor: "rgba(255,255,255,0.5)"
                 },
                 xaxis: {title: 'Leaf'},
-                yaxis: {title: 'RMS Error (cm/s)'},
+                yaxis: {title: 'Speed Error (cm/s)'},
                 bargap: 0.05,
                 bargroupgap: 0.2,
                 barmode: 'overlay',
