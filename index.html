@@ -245,8 +245,9 @@
                                         </tr>
                                         <tr>
                                             <td>Results:</td>
-                                            <td><b v-show="analyzed">{{ error.max_pos | checkTolerance(toler.pos) }}</b>
-                                            <br><b v-show="!analyzed">{{ message }}</b></td>
+                                            <td v-show="analyzed">Leaf Position:&emsp;<b :class="error.max_pos | setToleranceFont(toler.pos)"> {{ error.max_pos | checkTolerance(toler.pos) }}</b>
+                                            <br>Leaf Speed:&emsp;<b :class="error.max_vel | setToleranceFont(toler.vel)"> {{ error.max_vel | checkTolerance(toler.vel) }}</b></td>
+                                            <td v-show="!analyzed"><b>{{ message }}</b></td>
                                         </tr>
                                     </tbody>
                                 </template>
@@ -1231,6 +1232,11 @@
               if (!value) return 'n/a'
               if (value > tolerance) return 'Fail'
               if (value < tolerance) return 'Pass'
+          },
+          setToleranceFont: function(value, tolerance) {
+              if (!value) return 'n/a'
+              if (value > tolerance) return 'red--text'
+              if (value < tolerance) return 'green--text'
           },
       },
     })
