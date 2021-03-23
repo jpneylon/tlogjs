@@ -1,8 +1,9 @@
 <!-- 
     Written by Jack Neylon, PhD, DABR (2020.08.12)
+    Updated with BEV (2021.02.28)
     UCLA Department of Radiation Oncology
 
-    Adapted from a Matlab script by Victoria Yu, PhD 
+    Initially adapted from a Matlab script by Victoria Yu, PhD 
     
     Reference for Trajectory Log binary file structure:
     TrueBeam 2.7 Trajectory Log File Specification
@@ -57,7 +58,6 @@
                         dark 
                         @click="loading=true,parseFilename(),importBinary()">Import File</v-btn>
                 </v-list-item>
-                <br>
                 <v-list-item>
                     <v-btn 
                         rounded 
@@ -66,7 +66,6 @@
                         :disabled="!imported"
                         @click="analyzing=true,analyzeLogs(),generateCharts()">Analyze Log</v-btn>
                 </v-list-item>
-                <br>
                 <v-list-item>
                     <v-btn 
                         rounded 
@@ -76,7 +75,6 @@
                         @click="minimize=true"
                         onclick="window.print()">Print to PDF</v-btn>
                 </v-list-item>
-                <br>
             </v-list>
             <v-divider></v-divider>
             <v-card justify="center" outlined v-show="imported">
@@ -145,6 +143,13 @@
                         v-model="p_switch5" 
                         color="indigo"
                         label="Speed Error per Leaf &emsp;">
+                    </v-switch>
+                </v-list-item>
+                <v-list-item>
+                    <v-switch 
+                        v-model="p_switch6" 
+                        color="indigo"
+                        label="BEV of the MLC &emsp;">
                     </v-switch>
                 </v-list-item>
                 <v-list-item>
@@ -283,6 +288,61 @@
                 <v-row align="center" justify="center" v-show="p_switch5">
                     <div id='bar_rms_v'></div>
                 </v-row>
+                <v-row align="center" justify="center" v-show="p_switch6">
+                    <v-card width="95%" height="935" justify="center" raised>
+                        <v-card-title>Beam's Eye View</v-card-title>
+                        <v-card-subtitle>
+                            <p>Control Point: {{frame+1}} / {{control_points}}<br>
+                                Snapshot: {{snap+1}} / {{snaps}}<br>
+                                MU Delivered: {{current_mu}} / {{total_mu | onlysigfigs(2)}}<br>
+                                Time Interval (ms): {{interval}}<br>
+                                Time Elapsed (s): {{snap * interval * 0.001 | onlysigfigs(2)}} / {{(snaps-1) * interval * 0.001 | onlysigfigs(2)}}</p>
+                        </v-card-subtitle>
+                        <v-card-text align="center">
+                            <bev-display :chart="bev_chart"></bev-display>
+                            <v-row justify="center">
+                                <v-col cols="1">
+                                    Dose: 
+                                </v-col>
+                                <v-col cols="8">
+                                    <v-progress-linear
+                                        :key="snap"
+                                        buffer-value="0"
+                                        :value="mu_progress"
+                                        height="25"
+                                        stream
+                                        :color="mu_heatmap">
+                                        <strong>{{ Math.round(mu_progress) }}%</strong>
+                                    </v-progress-linear>
+                                </v-col>
+                            </v-row>
+                            <v-row justify="center">
+                                <v-col  cols="1">
+                                    Time: 
+                                </v-col>
+                                <v-col  cols="8">
+                                    <v-progress-linear
+                                        :key="snap"
+                                        buffer-value="0"
+                                        :value="snap_progress"
+                                        height="25"
+                                        stream
+                                        :color="snap_heatmap">
+                                        <strong>{{ Math.round(snap_progress) }}%</strong>
+                                    </v-progress-linear>
+                                </v-col>
+                            </v-row>
+                        </v-card-text>
+                        <v-card-actions>
+                            <v-btn @click="increment(-1)">Previous Control Point</v-btn>
+                            <v-btn @click="increment(1)">Next Control Point</v-btn>
+                            <v-btn @click="toggleAnimation">Toggle Animation</v-btn>
+                            <v-btn @click="resetAnimation(true)">Go to Start</v-btn>
+                            <v-btn @click="resetAnimation(false)">Go to End</v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-row>
+                <br>
             </div>
             <div style="page-break-after: always;" v-show="analyzed" class="d-print-block">
                 <v-row align="center" justify="center" v-show="t_switch1">
@@ -373,9 +433,116 @@
         p_switch3: false,
         p_switch4: false,
         p_switch5: false,
+        p_switch6: false,
+        frame: 0,
+        snap: 0,
+        run: false,
+        motion: null,
         toler: {
             pos: 0.1,
             vel: 0.5,
+        },
+        leaves: Array.from(Array(60), (e,i)=>i+1),
+        bev_chart: {
+            uuid: "mlc_bev",
+            traces: [
+                // Bank A Expected Positions
+                {
+                    y: [], //leaves,
+                    x: [], //a_plan,
+                    width: [],
+                    type: 'bar',
+                    orientation: 'h',
+                    marker: {
+                        color: "rgba(100, 100, 202, 0.7)",
+                        line: {
+                            color:  "rgba(100, 100, 202, 1.0)", 
+                            width: 1
+                        }
+                    },
+                    name: 'Bank A Planned',
+                },
+                // Bank A Delivered Positions
+                {
+                    y: [], //leaves,
+                    x: [], //a_deliv,
+                    width: [],
+                    type: 'bar',
+                    orientation: 'h',
+                    marker: {
+                        color: "rgba(100, 100, 152, 0.4)",
+                        line: {
+                            color:  "rgba(100, 100, 152, 1.0)", 
+                            width: 1
+                        }
+                    },
+                    name: 'Bank A Delivered',
+                },
+                // Bank B Expected Positions
+                {
+                    y: [], //leaves,
+                    x: [], //b_plan,
+                    width: [],
+                    xaxis: 'x2',
+                    yaxis: 'y2',
+                    type: 'bar',
+                    orientation: 'h',
+                    marker: {
+                        color: "rgba(100, 200, 102, 0.7)",
+                        line: {
+                            color:  "rgba(100, 200, 102, 1.0)", 
+                            width: 1
+                        }
+                    },
+                    name: 'Bank B Planned',
+                },
+                // Bank B Delivered Positions
+                {
+                    y: [], //leaves,
+                    x: [], //b_deliv,
+                    width: [],
+                    xaxis: 'x2',
+                    yaxis: 'y2',
+                    type: 'bar',
+                    orientation: 'h',
+                    marker: {
+                        color: "rgba(100, 150, 102, 0.4)",
+                        line: {
+                            color:  "rgba(100, 150, 102, 1.0)", 
+                            width: 1
+                        }
+                    },
+                    name: 'Bank B Delivered',
+                }
+            ],
+            layout: {
+                autosize: false,
+                width: 900,
+                height: 600,
+                legend: {
+                    x: 0.1,
+                    y: 1.1,
+                    orientation: 'h',
+                    bgcolor: "rgba(255,255,255,0.5)"
+                },
+                yaxis: {title: 'Bank B Leaves'},
+                yaxis2: {
+                    title: 'Bank A Leaves',
+                    side: 'right',  
+                    overlaying: 'y'},
+                xaxis: {
+                    range: [40,0],
+                    visible: false
+                },
+                xaxis2: { 
+                    overlaying: 'x',
+                    side: 'top',
+                    range: [0,40],
+                    visible: false
+                },
+                bargap: 0.05,
+                barmode: 'overlay',
+            }
         },
         actual: {
             collimator: null,
@@ -405,6 +572,7 @@
                 speed_b: null,
             },
             mu: null,
+            cps: [],
         },
         expected: {
             collimator: null,
@@ -434,6 +602,7 @@
                 speed_b: null,
             },
             mu: null,
+            cps: [],
         },
         error: {
             mlc: {
@@ -464,6 +633,40 @@
             max_vel_bank: null,
         },
       },
+      computed: {
+        snap_progress () {
+            return 100.0 * this.snap / this.snaps;
+        },
+        control_points () {
+            if (this.expected.cps.length > this.actual.cps.length) {
+                return this.expected.cps.length;
+            } else {
+                return this.actual.cps.length;
+            }
+        },
+        current_mu () {
+            if (this.analyzed) {
+                return this.actual.mu[this.snap].toFixed(3);
+            } else {
+                return 0;
+            }
+        },
+        mu_progress () {
+            return 100.0 * this.current_mu / this.total_mu;
+        },
+        mu_heatmap () {
+            let red = 2.55 * this.mu_progress;
+            let blue = 2.0 * (100 - this.mu_progress);
+            let green = 200.0 * (1 - Math.pow(((this.mu_progress - 50)/50.0), 2));
+            return "rgb(" + red + "," + green + "," + blue + ")";
+        },
+        snap_heatmap () {
+            let red = 150 - 1.5*this.snap_progress;
+            let blue = 150 - 1.5*this.snap_progress;
+            let green = 150 + this.snap_progress;
+            return "rgb(" + red + "," + green + "," + blue + ")";
+        }
+      },
       methods: {
           parseFilename() {
             if (!this.chosenFile) {
@@ -472,6 +675,9 @@
                 this.loading = false;
                 return
             }
+            this.frame = 0;
+            this.snap = 0;
+
             var filename = this.chosenFile.name;
             var str = filename.split("_");
 
@@ -654,9 +860,49 @@
                   this.expected.mlc.leaf_a = new Float32Array(60 * num_snaps);
                   this.expected.mlc.leaf_b = new Float32Array(60 * num_snaps);
 
+                  let cpe_i = 0;
+                  let cpe_s = 0;
+                  let cpa_i = 0;
+                  let cpa_s = 0;
+
+
                   for (let i = 0; i < num_snaps; i++) {
                       this.expected.mu[i] = axis_data[num_values*i + 24];
                       this.actual.mu[i] = axis_data[num_values*i + 25];
+
+                      //console.log(axis_data[num_values*i + 28]);
+                      if (axis_data[num_values*i + 28] >= (cpe_i+1))
+                      {
+                        let cpe_now = {
+                            id: cpe_i,
+                            snap_initial: cpe_s,
+                            snap_final: i-1,
+                            snaps: i - cpe_s,
+                            duration: sample_interval * (i - cpe_s),
+                            weight: (this.expected.mu[i] - this.expected.mu[cpe_s]) / this.total_mu,
+                        }
+                        this.expected.cps.push(cpe_now);
+
+                        cpe_i += 1;
+                        cpe_s = i;
+                      }
+
+                      if (axis_data[num_values*i + 29] >= (cpa_i+1))
+                      {
+                        let cpa_now = {
+                            id: cpa_i,
+                            snap_initial: cpa_s,
+                            snap_final: i-1,
+                            snaps: i - cpa_s,
+                            duration: sample_interval * (i - cpa_s),
+                            weight: (this.actual.mu[i] - this.actual.mu[cpa_s]) / this.total_mu,
+                        }
+                        this.actual.cps.push(cpa_now);
+
+                        cpa_i += 1;
+                        cpa_s = i;
+                      }
+
                       this.expected.mlc.car_a[i] = axis_data[num_values*i + 30];
                       this.actual.mlc.car_a[i] = axis_data[num_values*i + 31];
                       this.expected.mlc.car_b[i] = axis_data[num_values*i + 32];
@@ -668,8 +914,30 @@
                         this.expected.mlc.leaf_b[60*i + j] = axis_data[num_values*i + 2*j + 154];
                         this.actual.mlc.leaf_b[60*i + j] = axis_data[num_values*i + 2*j + 155];                         
                       }
-                  }
 
+                      
+                  }
+                  let cpe_now = {
+                    id: cpe_i+1,
+                    snap_initial: cpe_s,
+                    snap_final: this.snaps-1,
+                    snaps: this.snaps - cpe_s,
+                    duration: sample_interval * (this.snaps - cpe_s),
+                    weight: (this.expected.mu[this.snaps-1] - this.expected.mu[cpe_s]) / this.total_mu,
+                    }
+                  this.expected.cps.push(cpe_now);
+                  let cpa_now = {
+                    id: cpa_i+1,
+                    snap_initial: cpa_s,
+                    snap_final: this.snaps-1,
+                    snaps: this.snaps - cpa_s,
+                    duration: sample_interval * (this.snaps - cpa_s),
+                    weight: (this.expected.mu[this.snaps-1] - this.expected.mu[cpa_s]) / this.total_mu,
+                    }
+                  this.actual.cps.push(cpa_now);
+
+                  console.log(this.expected.cps);
+                  console.log(this.actual.cps);
                   // console.table([this.actual.mlc.leaf_a,this.expected.mlc.leaf_a]);
 
                   this.loading = false;
@@ -868,6 +1136,7 @@
                 editable: true
                 };
 
+            // Bank A Leaf Position Error
             var trace1 = {
                 x: this.error.mlc.pos_a,
                 xbins: {
@@ -888,6 +1157,7 @@
                     }
                 }
             };
+            // Bank B Leaf Position Error
             var trace2 = {
                 x: this.error.mlc.pos_b,
                 xbins: {
@@ -907,8 +1177,8 @@
                     }
                 }
             };
-             
             var data_pos = [trace1, trace2];
+            // Leaf Position Error Histogram
             var layout_pos = {
                 title: 'Leaf Position Error Histogram',
                 autosize: false,
@@ -936,6 +1206,7 @@
                 barmode: 'overlay',
             };
 
+            // Bank A Leaf Speed Error
             var trace3 = {
                 x: this.error.mlc.vel_a,
                 xbins: {
@@ -955,6 +1226,7 @@
                     }
                 }
             };
+            // Bank B Leaf Speed Error
             var trace4 = {
                 x: this.error.mlc.vel_b,
                 xbins: {
@@ -975,6 +1247,7 @@
                 }
             };
             var data_vel = [trace3, trace4];
+            // Leaf Speed Error Histogram
             var layout_vel = {
                 title: 'Leaf Speed Error Histogram',
                 autosize: false,
@@ -1006,6 +1279,7 @@
             for (let t = 0; t < this.snaps; t++) {
                 timer[t] = this.interval * t / 1000.0;
             }
+            // Expected MU
             var trace5 = {
                 x: timer,
                 y: this.expected.mu,
@@ -1016,6 +1290,7 @@
                 },
                 name: 'Expected MU',
             };
+            // Actual MU
             var trace6 = {
                 x: timer,
                 y: this.actual.mu,
@@ -1028,6 +1303,7 @@
                 name: 'Actual MU',
             };
             var data_mu = [trace5, trace6];
+            // Gating Analysis of Delivered MU
             var layout_mu = {
                 title: 'Gating Analysis of Delivered MU',
                 autosize: false,
@@ -1043,16 +1319,15 @@
                 yaxis: {title: 'MU'}
             };
 
-            var leaves = new Int16Array(60);
             var p_toler = new Float32Array(60);
             var v_toler = new Float32Array(60);
             for (let i=0; i<60; i++) {
-                leaves[i] = i+1;
                 p_toler[i] = this.toler.pos;
                 v_toler[i] = this.toler.vel;
             }
+            // Bank A RMS Error
             var trace7 = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_rms.pos_a,
                 type: 'bar',
                 marker: {
@@ -1064,8 +1339,9 @@
                 },
                 name: 'Bank A RMS Error',
             };
+            // Bank A Max Error
             var trace7a = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_max.pos_a,
                 type: 'bar',
                 marker: {
@@ -1077,8 +1353,9 @@
                 },
                 name: 'Bank A Max Error',
             };
+            // Bank B RMS Error
             var trace8 = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_rms.pos_b,
                 type: 'bar',
                 marker: {
@@ -1090,8 +1367,9 @@
                 },
                 name: 'Bank B RMS Error',
             };
+            // Bank B Max Error
             var trace8a = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_max.pos_b,
                 type: 'bar',
                 marker: {
@@ -1103,8 +1381,9 @@
                 },
                 name: 'Bank B Max Error',
             };
+            // Tolerance
             var trace9 = {
-                x: leaves,
+                x: this.leaves,
                 y: p_toler,
                 type: 'scatter',
                 opacity: 0.75,
@@ -1115,6 +1394,7 @@
                 name: 'Tolerance',
             };
             var data_rms_p = [trace7, trace7a, trace8, trace8a, trace9];
+            // Leaf Position Error
             var layout_rms_p = {
                 title: 'Leaf Position Error',
                 autosize: false,
@@ -1133,8 +1413,9 @@
                 barmode: 'overlay',
             };
 
+            // Bank A RMS Error
             var trace10 = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_rms.vel_a,
                 type: 'bar',
                 marker: {
@@ -1146,8 +1427,9 @@
                 },
                 name: 'Bank A RMS Error',
             };
+            // Bank A Max Error
             var trace10a = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_max.vel_a,
                 type: 'bar',
                 marker: {
@@ -1159,8 +1441,9 @@
                 },
                 name: 'Bank A Max Error',
             };
+            // Bank B RMS Error
             var trace11 = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_rms.vel_b,
                 type: 'bar',
                 marker: {
@@ -1172,8 +1455,9 @@
                 },
                 name: 'Bank B RMS Error',
             };
+            // Bank B Max Error
             var trace11a = {
-                x: leaves,
+                x: this.leaves,
                 y: this.error.leaf_max.vel_b,
                 type: 'bar',
                 marker: {
@@ -1185,8 +1469,9 @@
                 },
                 name: 'Bank B Max Error',
             };
+            // Tolerance
             var trace12 = {
-                x: leaves,
+                x: this.leaves,
                 y: v_toler,
                 type: 'scatter',
                 opacity: 0.75,
@@ -1197,6 +1482,7 @@
                 name: 'Tolerance',
             };
             var data_rms_v = [trace10, trace10a, trace11, trace11a, trace12];
+            // Leaf Speed Error
             var layout_rms_v = {
                 title: 'Leaf Speed Error',
                 autosize: false,
@@ -1215,12 +1501,100 @@
                 barmode: 'overlay',
             };
 
+
+            let wid = Array(60).fill(0.95);
+            for (var i = 10; i < 50; i++) {
+                wid[i] = 0.55;
+            }
+
+            console.log(this.leaves);
+            this.bev_chart.traces[0].width = wid;
+            this.bev_chart.traces[0].y = this.leaves;
+            this.bev_chart.traces[0].x = Array.from(this.expected.mlc.leaf_a.slice(0, 60), function rescale(pos) { return 20 - pos; }); 
+            this.bev_chart.traces[1].width = wid;
+            this.bev_chart.traces[1].y = this.leaves;
+            this.bev_chart.traces[1].x = Array.from(this.actual.mlc.leaf_a.slice(0, 60), function rescale(pos) { return 20 - pos; }); 
+            this.bev_chart.traces[2].width = wid;
+            this.bev_chart.traces[2].y = this.leaves;
+            this.bev_chart.traces[2].x = Array.from(this.expected.mlc.leaf_b.slice(0, 60), function rescale(pos) { return 20 - pos; }); 
+            this.bev_chart.traces[3].width = wid;
+            this.bev_chart.traces[3].y = this.leaves;
+            this.bev_chart.traces[3].x = Array.from(this.actual.mlc.leaf_b.slice(0, 60), function rescale(pos) { return 20 - pos; }); 
+
             Plotly.newPlot('histo_max_pos', data_pos, layout_pos);
             Plotly.newPlot('histo_max_vel', data_vel, layout_vel);
             Plotly.newPlot('line_mu', data_mu, layout_mu);
             Plotly.newPlot('bar_rms_p', data_rms_p, layout_rms_p);
             Plotly.newPlot('bar_rms_v', data_rms_v, layout_rms_v);
-          }
+            //Plotly.newPlot('mlc_bev', data_bev, layout_bev)
+          },
+          animate(snap_e,snap_a) {
+                this.bev_chart.traces[0].x = Array.from(this.expected.mlc.leaf_a.slice(60*snap_e, 60*(snap_e+1)), function rescale(pos) { return 20 - pos; }); 
+                this.bev_chart.traces[1].x = Array.from(this.actual.mlc.leaf_a.slice(60*snap_a, 60*(snap_a+1)), function rescale(pos) { return 20 - pos; }); 
+                this.bev_chart.traces[2].x = Array.from(this.expected.mlc.leaf_b.slice(60*snap_e, 60*(snap_e+1)), function rescale(pos) { return 20 - pos; }); 
+                this.bev_chart.traces[3].x = Array.from(this.actual.mlc.leaf_b.slice(60*snap_a, 60*(snap_a+1)), function rescale(pos) { return 20 - pos; }); 
+          },
+          increment(f) {
+                let new_frame = this.frame + f;
+                if (new_frame < 0) { 
+                    new_frame = 0; 
+                }
+                if (new_frame >= this.control_points) { 
+                    new_frame = this.control_points - 1;
+                }
+                this.frame = new_frame;
+
+                let snap_e = this.expected.cps[this.frame].snap_initial;
+                this.snap = snap_e;
+                let snap_a = this.actual.cps[this.frame].snap_initial;
+                this.animate(snap_e,snap_a);
+          },
+          resetAnimation(restart) {
+                if (restart) {
+                    this.snap = 0;
+                    this.frame = 0;
+                } else {
+                    this.snap = this.snaps - 1;
+                    this.frame = this.control_points - 1;
+                }
+                this.animate(this.snap,this.snap);
+          },
+          animate_by_snap() {
+                this.snap += 1;
+                if (this.snap == this.snaps) {
+                    this.snap = this.snaps - 1;
+                    this.frame = this.control_points - 1;
+                    this.toggleAnimation();
+                    this.animate(this.snap,this.snap);
+                }
+                else {
+                    for (var c = 0; c < this.expected.cps.length; c++)
+                    {
+                        if (this.expected.cps[c].snap_final > this.snap)
+                        {
+                            this.frame = c;
+                            break;
+                        }
+                    }
+                    let snap_e = this.snap;
+                    let snap_a = this.snap;
+                    this.bev_chart.traces[0].x = Array.from(this.expected.mlc.leaf_a.slice(60*snap_e, 60*(snap_e+1)), function rescale(pos) { return 20 - pos; }); 
+                    this.bev_chart.traces[1].x = Array.from(this.actual.mlc.leaf_a.slice(60*snap_a, 60*(snap_a+1)), function rescale(pos) { return 20 - pos; }); 
+                    this.bev_chart.traces[2].x = Array.from(this.expected.mlc.leaf_b.slice(60*snap_e, 60*(snap_e+1)), function rescale(pos) { return 20 - pos; }); 
+                    this.bev_chart.traces[3].x = Array.from(this.actual.mlc.leaf_b.slice(60*snap_a, 60*(snap_a+1)), function rescale(pos) { return 20 - pos; }); 
+                }
+          },
+          toggleAnimation() {
+              this.run = !this.run;
+              if (this.run) {
+                  this.motion = setInterval(() => {
+                                    this.animate_by_snap();
+                                }, this.interval);
+              }
+              else {
+                  clearInterval(this.motion);
+              }
+          },
       },
       filters: {
           onlysigfigs: function (value, figs) {
@@ -1239,6 +1613,27 @@
               if (value < tolerance) return 'green--text'
           },
       },
+      components: {
+        bevDisplay: {
+            props: ['chart'],
+            template: `<div :ref="chart.uuid"/>`,
+            mounted() {
+                Plotly.plot(this.$refs[this.chart.uuid], this.chart.traces, this.chart.layout);
+            },
+            watch: {
+                chart: {
+                    handler: function() {
+                        Plotly.react(
+                        this.$refs[this.chart.uuid],
+                        this.chart.traces,
+                        this.chart.layout
+                        );
+                    },
+                    deep: true
+                }
+            }
+        },
+      }
     })
   </script>
 </body>
